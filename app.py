@@ -5,12 +5,15 @@ import wave
 import os
 import math
 import time
+import threading
+
 from grove.adc import ADC
 from pydub import AudioSegment
 from testscontant import SpeechToText
 from grove.helper import SlotHelper
+
 pin = 0
-seconds = 8
+seconds = 10
 #filename = "output.wav"
 __all__ = ['GroveSoundSensor']
 
@@ -19,8 +22,6 @@ chunk = 1024  # Record in chunks of 1024 samples
 sample_format = pyaudio.paInt16  # 16 bits per sample
 channels = 2
 fs = 44100  # Record at 44100 samples per second
-stt = SpeechToText()
-#p = pyaudio.PyAudio()
 
 class GroveSoundSensor(object):
     def __init__(self, channel):
@@ -32,67 +33,99 @@ class GroveSoundSensor(object):
         value = self.adc.read(self.channel)
         return value
 
-def Recording(filename):
-    p = pyaudio.PyAudio()  # Create an interface to PortAudio
+class Recorder(threading.Thread):
+        def __init__(self):
+                self.p = pyaudio.PyAudio()  # Create an interface to PortAudio
+                self.stream = self.p.open(format=sample_format,
+                         channels=channels,
+                         rate=fs,
+                         frames_per_buffer=chunk,
+                         input=True)
+                self.frames = []
+                threading.Thread.__init__(self)
+                self.pat = False
 
-    print('Recording')
+        def run(self):
+                while self.pat:
+                         data = self.stream.read(chunk)
+                         frames.append(data)
 
-    stream = p.open(format=sample_format,
-                        channels=channels,
-                        rate=fs,
-                        frames_per_buffer=chunk,
-                        input=True)
+        def recording(self):
+                self.pat=True
+                #begin=time.time()
+                print('Recording')
+                # Store data in chunks
+                #for i in range(0, int(fs / chunk * seconds)):
+                #data = self.stream.read(chunk)
+                #self.frames.append(data)
+                self.start()
 
-    frames = []  # Initialize array to store frames
+        def stopRecording(self,filename):
+                # Stop and close the stream
+                #stream.stop_stream()
+                #stream.close()
+                # Terminate the PortAudio interface
+                #p.terminate()
+                print('Finished recording')
+                self.pat=False
+                # Save the recorded data as a WAV file
+                wf = wave.open(filename, 'wb')
+                wf.setnchannels(channels)
+                wf.setsampwidth(self.p.get_sample_size(sample_format))
+                wf.setframerate(fs)
+                wf.writeframes(b''.join(self.frames))
+                wf.close()
 
-    # Store data in chunks
-    for i in range(0, int(fs / chunk * seconds)):
-        data = stream.read(chunk)
-        frames.append(data)
+def slicing(file):
+    song = AudioSegment.from_wav(file)
 
-    # Stop and close the stream
-    stream.stop_stream()
-    stream.close()
-    # Terminate the PortAudio interface
-    p.terminate()
+    # pydub does things in milliseconds
+    first_5_seconds = song[:5100]
+    last_5_seconds = song[-5100:]
+    first_5_seconds.export('first_5_seconds.wav', format="wav")
+    last_5_seconds.export('last_5_seconds.wav', format="wav")
 
-    print('Finished recording')
+    print('first_5_sec')
+    detectWords('/root/audio/first_5_seconds.wav')
 
-    # Save the recorded data as a WAV file
-    wf = wave.open(filename, 'wb')
-    wf.setnchannels(channels)
-    wf.setsampwidth(p.get_sample_size(sample_format))
-    wf.setframerate(fs)
-    wf.writeframes(b''.join(frames))
-    wf.close()
+    print('last_5_sec')
+    detectWords('/root/audio/last_5_seconds.wav')
 
-def Slicing(file):
-
-        song = AudioSegment.from_wav(file)
-
-        # pydub does things in milliseconds
-        first = song[:4050]
-        last = song[-4050:]
-        first.export('first.wav', format="wav")
-        last.export('last.wav', format="wav")
-        print('first')
-        stt.detectWords('/root/audio/first.wav')
-        print('last')
-        stt.detectWords('/root/audio/last.wav')
-
-Grove = GroveSoundSensor
 
 def main():
         count=0
+        c=0
+        threshold_value=550
+        limit = 4
+        recordingbool = False
         sensor = GroveSoundSensor(pin)
+        Record = Recorder()
         while(True):
-                filename = "/root/audio/output"+str(count)+".wav"
-                print('Record')
-                Recording(filename)
-                print('Slice')
-                Slicing(filename)
-                os.remove(filename)
+                filename = "/home/pi/Music/output"+str(count)+".wav"
+                print('Start value: {0}'.format(sensor.sound))
+                if sensor.sound < threshold_value:
+                        c += 1
+                if sensor.sound > threshold_value:
+                        c = 0
+                        if not recordingbool:
+                                recordingbool =  True
+                                print("Je lance le record")
+                                #Record.start()
+                        else:
+                                print("recording")
+                if c >= limit:
+                        if recordingbool:
+                                print("Stop Recording")
+                                recordingbool = False
+                                Record.stopRecording(filename)
+
+                                #print('Slice')
+                                #slicing(filename)
+                                #os.remove(filename)
+                print('Final value: {0}'.format(sensor.sound))
+                print(c)
+                time.sleep(.5)
                 count+=1%100
 
 if __name__ == "__main__":
-    main()
+        main()
