@@ -1,2 +1,0 @@
-# Caeglass
-Projet IoT Caeglass
